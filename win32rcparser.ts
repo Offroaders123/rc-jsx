@@ -7,15 +7,18 @@
 This is a parser for Windows .rc files, which are text files which define
 dialogs and other Windows UI resources.
 */
-__author__="Adam Walker"
-__version__="0.11"
+const __author__="Adam Walker"
+const __version__="0.11"
 
-import sys, os, shlex, stat
-import pprint
-import win32con
-import commctrl
+import * as sys from "sys";
+import * as os from "_os";
+import * as shlex from "shlex";
+import * as stat from "stat";
+import * as pprint from "pprint";
+import * as win32con from "win32con";
+import * as commctrl from "commctrl";
 
-_controlMap = {"DEFPUSHBUTTON":0x80,
+const _controlMap = {"DEFPUSHBUTTON":0x80,
                "PUSHBUTTON":0x80,
                "Button":0x80,
                "GROUPBOX":0x80,
@@ -36,7 +39,7 @@ _controlMap = {"DEFPUSHBUTTON":0x80,
 // disabled.  These defaults have been determined by experimentation, so may
 // not be completely accurate (most notably, some styles and/or control-types
 // may be missing.
-_addDefaults = {"EDITTEXT":win32con.WS_BORDER | win32con.WS_TABSTOP,
+const _addDefaults = {"EDITTEXT":win32con.WS_BORDER | win32con.WS_TABSTOP,
                 "GROUPBOX":win32con.BS_GROUPBOX,
                 "LTEXT":win32con.SS_LEFT,
                 "DEFPUSHBUTTON":win32con.BS_DEFPUSHBUTTON | win32con.WS_TABSTOP,
@@ -47,150 +50,180 @@ _addDefaults = {"EDITTEXT":win32con.WS_BORDER | win32con.WS_TABSTOP,
                 "LISTBOX":win32con.LBS_NOTIFY,
                 }
 
-defaultControlStyle = win32con.WS_CHILD | win32con.WS_VISIBLE
-defaultControlStyleEx = 0
+const defaultControlStyle = win32con.WS_CHILD | win32con.WS_VISIBLE
+const defaultControlStyleEx = 0
 
-class DialogDef:
+class DialogDef {
     name = ""
     id = 0
     style = 0
-    styleEx = None
+    styles
+    styleEx = null
+    stylesEx
     caption = ""
+    controls
     font = "MS Sans Serif"
     fontSize = 8
     x = 0
     y = 0
     w = 0
     h = 0
-    template = None
-    def __init__(self, n, i):
-        self.name = n
-        self.id = i
-        self.styles = []
-        self.stylesEx = []
-        self.controls = []
-        #print "dialog def for ",self.name, self.id
-    def createDialogTemplate(self):
-        t = None
-        self.template = [[self.caption,
-                          (self.x,self.y,self.w,self.h),
-                          self.style, self.styleEx,
-                          (self.fontSize, self.font)]
+    template: [string, [number, number, number, number], number, null, [number, string]][] | null = null
+    constructor(n, i) {
+        this.name = n
+        this.id = i
+        this.styles = []
+        this.stylesEx = []
+        this.controls = []
+        //print "dialog def for ",self.name, self.id
+    }
+    createDialogTemplate() {
+        let t = null
+        this.template = [[this.caption,
+                          [this.x,this.y,this.w,this.h],
+                          this.style, this.styleEx,
+                          [this.fontSize, this.font]]
         ]
         // Add the controls
-        for control in self.controls:
-            self.template.append(control.createDialogTemplate())
-        return self.template
+        for (let control of this.controls) {
+            this.template.push(control.createDialogTemplate())
+        }
+        return this.template
+    }
+}
 
-class ControlDef:
+class ControlDef {
     id = ""
     controlType = ""
     subType = ""
     idNum = 0
     style = defaultControlStyle
+    styles
     styleEx = defaultControlStyleEx
+    stylesEx
     label = ""
     x = 0
     y = 0
     w = 0
     h = 0
-    def __init__(self):
-        self.styles = []
-        self.stylesEx = []
-    def toString(self):
-        s = "<Control id:"+self.id+" controlType:"+self.controlType+" subType:"+self.subType\
-            +" idNum:"+str(self.idNum)+" style:"+str(self.style)+" styles:"+str(self.styles)+" label:"+self.label\
-            +" x:"+str(self.x)+" y:"+str(self.y)+" w:"+str(self.w)+" h:"+str(self.h)+">"
+    constructor() {
+        this.styles = []
+        this.stylesEx = []
+    }
+    toString() {
+        let s = "<Control id:"+this.id+" controlType:"+this.controlType+" subType:"+this.subType
+            +" idNum:"+String(this.idNum)+" style:"+String(this.style)+" styles:"+String(this.styles)+" label:"+this.label
+            +" x:"+String(this.x)+" y:"+String(this.y)+" w:"+String(this.w)+" h:"+String(this.h)+">"
         return s
-    def createDialogTemplate(self):
-        ct = self.controlType
-        if "CONTROL"==ct:
-            ct = self.subType
-        if ct in _controlMap:
+    }
+    createDialogTemplate() {
+        let ct = this.controlType
+        if ("CONTROL"==ct) {
+            ct = this.subType
+        }
+        if (ct in _controlMap) {
             ct = _controlMap[ct]
-        t = [ct, self.label, self.idNum, (self.x, self.y, self.w, self.h), self.style, self.styleEx]
-        #print t
+        }
+        let t = [ct, this.label, this.idNum, (this.x, this.y, this.w, this.h), this.style, this.styleEx]
+        //print t
         return t
+    }
+}
 
-class StringDef:
-    def __init__(self, id, idNum, value):
-        self.id = id
-        self.idNum = idNum
-        self.value = value
+class StringDef {
+    constructor(public id, public idNum, public value) {}
+    toString() {
+        return "StringDef(%r, %r, %r)" % (this.id, this.idNum, this.value)
+    }
+}
 
-    def __repr__(self):
-        return "StringDef(%r, %r, %r)" % (self.id, self.idNum, self.value)
-
-class RCParser:
+class RCParser {
     next_id = 1001
     dialogs = {}
     _dialogs = {}
     debugEnabled = False
     token = ""
 
-    def __init__(self):
-        self.ungot = False
-        self.ids = {"IDC_STATIC": -1}
-        self.names = {-1:"IDC_STATIC"}
-        self.bitmaps = {}
-        self.stringTable = {}
-        self.icons = {}
+    constructor(this) {
+        this.ungot = false
+        this.ids = {"IDC_STATIC": -1}
+        this.names = {"-1":"IDC_STATIC"}
+        this.bitmaps = {}
+        this.stringTable = {}
+        this.icons = {}
+    }
 
-    def debug(self, *args):
-        if self.debugEnabled:
-            print(args)
+    debug(...args) {
+        if (this.debugEnabled) {
+            console.log(args)
+        }
+    }
 
-    def getToken(self):
-        if self.ungot:
-            self.ungot = False
-            self.debug("getToken returns (ungot):", self.token)
-            return self.token
-        self.token = self.lex.get_token()
-        self.debug("getToken returns:", self.token)
-        if self.token=="":
-            self.token = None
-        return self.token
+    getToken() {
+        if (this.ungot) {
+            this.ungot = false
+            this.debug("getToken returns (ungot):", this.token)
+            return this.token
+        }
+        this.token = this.lex.get_token()
+        this.debug("getToken returns:", this.token)
+        if (this.token=="") {
+            this.token = null
+        }
+        return this.token
+    }
 
-    def ungetToken(self):
-        self.ungot = True
+    ungetToken() {
+        this.ungot = true
+    }
 
-    def getCheckToken(self, expected):
-        tok = self.getToken()
-        assert tok == expected, "Expected token '%s', but got token '%s'!" % (expected, tok)
+    getCheckToken(expected) {
+        let tok = this.getToken()
+        if (tok !== expected) {
+            throw new Error(`Expected token '${expected}', but got token '${tok}'!`)
+        }
         return tok
+    }
 
-    def getCommaToken(self):
-        return self.getCheckToken(",")
+    getCommaToken() {
+        return this.getCheckToken(",")
+    }
 
     // Return the *current* token as a number, only consuming a token
     // if it is the negative-sign.
-    def currentNumberToken(self):
-        mult = 1
-        if self.token=='-':
+    currentNumberToken() {
+        let mult = 1
+        if (this.token=='-') {
             mult = -1
-            self.getToken()
-        return int(self.token) * mult
+            this.getToken()
+        }
+        return parseInt(this.token) * mult
+    }
 
     // Return the *current* token as a string literal (ie, self.token will be a
     // quote.  consumes all tokens until the end of the string
-    def currentQuotedString(self):
+    currentQuotedString(self) {
         // Handle quoted strings - pity shlex doesn't handle it.
-        assert self.token.startswith('"'), self.token
-        bits = [self.token]
-        while 1:
-            tok = self.getToken()
-            if not tok.startswith('"'):
+        if (!self.token.startswith('"')) {
+            throw new Error(self.token)
+        }
+        let bits = [self.token]
+        while (true) {
+            let tok = self.getToken()
+            if (!tok.startswith('"')) {
                 self.ungetToken()
                 break
-            bits.append(tok)
-        sval = "".join(bits)[1:-1] // Remove end quotes.            
+            }
+            bits.push(tok)
+        }
+        let sval = "".join(bits)[1:-1] // Remove end quotes.            
         // Fixup quotes in the body, and all (some?) quoted characters back
         // to their raw value.
-        for i, o in ('""', '"'), ("\\r", "\r"), ("\\n", "\n"), ("\\t", "\t"):
+        for i, o in ('""', '"'), ("\\r", "\r"), ("\\n", "\n"), ("\\t", "\t") {
             sval = sval.replace(i, o)
         return sval
         
-    def load(self, rcstream):
+    load(self, rcstream) {
         /*
         RCParser.loadDialogs(rcFileName) -> None
         Load the dialog information into the parser. Dialog Definations can then be accessed
@@ -199,41 +232,41 @@ class RCParser:
         */
         self.open(rcstream)
         self.getToken()
-        while self.token!=None:
+        while self.token!=None {
             self.parse()
             self.getToken()
 
-    def open(self, rcstream):
+    open(self, rcstream) {
         self.lex = shlex.shlex(rcstream)
         self.lex.commenters = "//#"
 
-    def parseH(self, file):
+    parseH(self, file) {
         lex = shlex.shlex(file)
         lex.commenters = "//"
         token = " "
-        while token is not None:
+        while token is not None {
             token = lex.get_token()
-            if token == "" or token is None:
+            if token == "" or token is None {
                 token = None
-            else:
-                if token=='define':
+            else {
+                if token=='define' {
                     n = lex.get_token()
                     i = int(lex.get_token())
                     self.ids[n] = i
-                    if i in self.names:
+                    if i in self.names {
                         // Dupe ID really isn't a problem - most consumers
                         // want to go from name->id, and this is OK.
                         // It means you can't go from id->name though.
                         pass
                         // ignore AppStudio special ones
-                        #if not n.startswith("_APS_"):
+                        #if not n.startswith("_APS_") {
                         //    print "Duplicate id",i,"for",n,"is", self.names[i]
-                    else:
+                    else {
                         self.names[i] = n
-                    if self.next_id<=i:
+                    if self.next_id<=i {
                         self.next_id = i+1
 
-    def parse(self):
+    parse(self) {
         noid_parsers = {
             "STRINGTABLE":      self.parse_stringtable,
         }
@@ -248,47 +281,47 @@ class RCParser:
         deep = 0
         base_token = self.token
         rp = noid_parsers.get(base_token)
-        if rp is not None:
+        if rp is not None {
             rp()
-        else:
+        else {
             // Not something we parse that isn't prefixed by an ID
             // See if it is an ID prefixed item - if it is, our token
             // is the resource ID.
             resource_id = self.token
             self.getToken()
-            if self.token is None:
+            if self.token is None {
                 return
 
-            if "BEGIN" == self.token:
+            if "BEGIN" == self.token {
                 // A 'BEGIN' for a structure we don't understand - skip to the
                 // matching 'END'
                 deep = 1
-                while deep!=0 and self.token is not None:
+                while deep!=0 and self.token is not None {
                     self.getToken()
                     self.debug("Zooming over", self.token)
-                    if "BEGIN" == self.token:
+                    if "BEGIN" == self.token {
                         deep += 1
-                    elif "END" == self.token:
+                    elif "END" == self.token {
                         deep -= 1
-            else:
+            else {
                 rp = id_parsers.get(self.token)
-                if rp is not None:
+                if rp is not None {
                     self.debug("Dispatching '%s'" % (self.token,))
                     rp(resource_id)
-                else:
+                else {
                     // We don't know what the resource type is, but we
                     // have already consumed the next, which can cause problems,
                     // so push it back.
                     self.debug("Skipping top-level '%s'" % base_token)
                     self.ungetToken()
 
-    def addId(self, id_name):
-        if id_name in self.ids:
+    addId(self, id_name) {
+        if id_name in self.ids {
             id = self.ids[id_name]
-        else:
+        else {
             // IDOK, IDCANCEL etc are special - if a real resource has this value
-            for n in ["IDOK","IDCANCEL","IDYES","IDNO", "IDABORT"]:
-                if id_name == n:
+            for n in ["IDOK","IDCANCEL","IDYES","IDNO", "IDABORT"] {
+                if id_name == n {
                     v = getattr(win32con, n)
                     self.ids[n] = v
                     self.names[v] = n
@@ -299,50 +332,50 @@ class RCParser:
             self.names[id] = id_name
         return id
 
-    def lang(self):
-        while self.token[0:4]=="LANG" or self.token[0:7]=="SUBLANG" or self.token==',':
+    lang(self) {
+        while self.token[0:4]=="LANG" or self.token[0:7]=="SUBLANG" or self.token==',' {
             self.getToken();
 
-    def parse_textinclude(self, res_id):
-        while self.getToken() != "BEGIN":
+    parse_textinclude(self, res_id) {
+        while self.getToken() != "BEGIN" {
             pass
-        while 1:
-            if self.token == "END":
+        while 1 {
+            if self.token == "END" {
                 break
             s = self.getToken()
 
-    def parse_stringtable(self):
-        while self.getToken() != "BEGIN":
+    parse_stringtable(self) {
+        while self.getToken() != "BEGIN" {
             pass
-        while 1:
+        while 1 {
             self.getToken()
-            if self.token == "END":
+            if self.token == "END" {
                 break
             sid = self.token
             self.getToken()
             sd = StringDef(sid, self.addId(sid), self.currentQuotedString())
             self.stringTable[sid] = sd
 
-    def parse_bitmap(self, name):
+    parse_bitmap(self, name) {
         return self.parse_bitmap_or_icon(name, self.bitmaps)
 
-    def parse_icon(self, name):
+    parse_icon(self, name) {
         return self.parse_bitmap_or_icon(name, self.icons)
 
-    def parse_bitmap_or_icon(self, name, dic):
+    parse_bitmap_or_icon(self, name, dic) {
         self.getToken()
-        while not self.token.startswith('"'):
+        while not self.token.startswith('"') {
             self.getToken()
         bmf = self.token[1:-1] // quotes
         dic[name] = bmf
 
-    def parse_dialog(self, name):
+    parse_dialog(self, name) {
         dlg = DialogDef(name,self.addId(name))
         assert len(dlg.controls)==0
         self._dialogs[name] = dlg
         extras = []
         self.getToken()
-        while not self.token.isdigit():
+        while not self.token.isdigit() {
             self.debug("extra", self.token)
             extras.append(self.token)
             self.getToken()
@@ -357,54 +390,54 @@ class RCParser:
         self.getToken() // number
         dlg.h = int(self.token)
         self.getToken()
-        while not (self.token==None or self.token=="" or self.token=="END"):
-            if self.token=="STYLE":
+        while not (self.token==None or self.token=="" or self.token=="END") {
+            if self.token=="STYLE" {
                 self.dialogStyle(dlg)
-            elif self.token=="EXSTYLE":
+            elif self.token=="EXSTYLE" {
                 self.dialogExStyle(dlg)
-            elif self.token=="CAPTION":
+            elif self.token=="CAPTION" {
                 self.dialogCaption(dlg)
-            elif self.token=="FONT":
+            elif self.token=="FONT" {
                 self.dialogFont(dlg)
-            elif self.token=="BEGIN":
+            elif self.token=="BEGIN" {
                 self.controls(dlg)
-            else:
+            else {
                 break
         self.dialogs[name] = dlg.createDialogTemplate()
 
-    def dialogStyle(self, dlg):
+    dialogStyle(self, dlg) {
         dlg.style, dlg.styles = self.styles( [], win32con.DS_SETFONT)
-    def dialogExStyle(self, dlg):
+    dialogExStyle(self, dlg) {
         self.getToken()
         dlg.styleEx, dlg.stylesEx = self.styles( [], 0)
 
-    def styles(self, defaults, defaultStyle):
+    styles(self, defaults, defaultStyle) {
         list = defaults
         style = defaultStyle
 
-        if "STYLE"==self.token:
+        if "STYLE"==self.token {
             self.getToken()
         i = 0
         Not = False
-        while ((i%2==1 and ("|"==self.token or "NOT"==self.token)) or (i%2==0)) and not self.token==None:
+        while ((i%2==1 and ("|"==self.token or "NOT"==self.token)) or (i%2==0)) and not self.token==None {
             Not = False;
-            if "NOT"==self.token:
+            if "NOT"==self.token {
                 Not = True
                 self.getToken()
             i += 1
-            if self.token!="|":
-                if self.token in win32con.__dict__:
+            if self.token!="|" {
+                if self.token in win32con.__dict__ {
                     value = getattr(win32con,self.token)
-                else:
-                    if self.token in commctrl.__dict__:
+                else {
+                    if self.token in commctrl.__dict__ {
                         value = getattr(commctrl,self.token)
-                    else:
+                    else {
                         value = 0
-                if Not:
+                if Not {
                     list.append("NOT "+self.token)
                     self.debug("styles add Not",self.token, value)
                     style &= ~value
-                else:
+                else {
                     list.append(self.token)
                     self.debug("styles add", self.token, value)
                     style |= value
@@ -413,59 +446,59 @@ class RCParser:
 
         return style, list
 
-    def dialogCaption(self, dlg):
-        if "CAPTION"==self.token:
+    dialogCaption(self, dlg) {
+        if "CAPTION"==self.token {
             self.getToken()
         self.token = self.token[1:-1]
         self.debug("Caption is:",self.token)
         dlg.caption = self.token
         self.getToken()
-    def dialogFont(self, dlg):
-        if "FONT"==self.token:
+    dialogFont(self, dlg) {
+        if "FONT"==self.token {
             self.getToken()
         dlg.fontSize = int(self.token)
         self.getCommaToken()
         self.getToken() // Font name
         dlg.font = self.token[1:-1] // it's quoted
         self.getToken()
-        while "BEGIN"!=self.token:
+        while "BEGIN"!=self.token {
             self.getToken()
-    def controls(self, dlg):
+    controls(self, dlg) {
         if self.token=="BEGIN": self.getToken()
-        // All controls look vaguely like:
+        // All controls look vaguely like {
         // TYPE [text, ] Control_id, l, t, r, b [, style]
-        // .rc parser documents all control types as:
+        // .rc parser documents all control types as {
         // CHECKBOX, COMBOBOX, CONTROL, CTEXT, DEFPUSHBUTTON, EDITTEXT, GROUPBOX,
         // ICON, LISTBOX, LTEXT, PUSHBUTTON, RADIOBUTTON, RTEXT, SCROLLBAR
         without_text = ["EDITTEXT", "COMBOBOX", "LISTBOX", "SCROLLBAR"]
-        while self.token!="END":
+        while self.token!="END" {
             control = ControlDef()
             control.controlType = self.token;
             self.getToken()
-            if control.controlType not in without_text:
-                if self.token[0:1]=='"':
+            if control.controlType not in without_text {
+                if self.token[0:1]=='"' {
                     control.label = self.currentQuotedString()
                 // Some funny controls, like icons and picture controls use
                 // the "window text" as extra resource ID (ie, the ID of the
                 // icon itself).  This may be either a literal, or an ID string.
-                elif self.token=="-" or self.token.isdigit():
+                elif self.token=="-" or self.token.isdigit() {
                     control.label = str(self.currentNumberToken())
-                else:
+                else {
                     // An ID - use the numeric equiv.
                     control.label = str(self.addId(self.token))
                 self.getCommaToken()
                 self.getToken()
             // Control IDs may be "names" or literal ints
-            if self.token=="-" or self.token.isdigit():
+            if self.token=="-" or self.token.isdigit() {
                 control.id = self.currentNumberToken()
                 control.idNum = control.id
-            else:
+            else {
                 // name of an ID
                 control.id = self.token
                 control.idNum = self.addId(control.id)
             self.getCommaToken()
 
-            if control.controlType == "CONTROL":
+            if control.controlType == "CONTROL" {
                 self.getToken()
                 control.subType = self.token[1:-1]
                 thisDefaultStyle = defaultControlStyle | \
@@ -474,7 +507,7 @@ class RCParser:
                 self.getCommaToken()
                 self.getToken()
                 control.style, control.styles = self.styles([], thisDefaultStyle)
-            else:
+            else {
                 thisDefaultStyle = defaultControlStyle | \
                                    _addDefaults.get(control.controlType, 0)
                 // incase no style is specified.
@@ -489,58 +522,58 @@ class RCParser:
             self.getToken()
             control.h = int(self.token)
             self.getToken()
-            if self.token==",":
+            if self.token=="," {
                 self.getToken()
                 control.style, control.styles = self.styles([], thisDefaultStyle)
-            if self.token==",":
+            if self.token=="," {
                 self.getToken()
                 control.styleEx, control.stylesEx = self.styles([], defaultControlStyleEx)
             #print control.toString()
             dlg.controls.append(control)
 
-def ParseStreams(rc_file, h_file):
+def ParseStreams(rc_file, h_file) {
     rcp = RCParser()
-    if h_file:
+    if h_file {
         rcp.parseH(h_file)
-    try:
+    try {
         rcp.load(rc_file)
-    except:
+    except {
         lex = getattr(rcp, "lex", None)
-        if lex:
+        if lex {
             print("ERROR parsing dialogs at line", lex.lineno)
             print("Next 10 tokens are:")
-            for i in range(10):
+            for i in range(10) {
                 print(lex.get_token(), end=' ')
             print()
         raise
     return rcp
     
-def Parse(rc_name, h_name = None):
-    if h_name:
+def Parse(rc_name, h_name = None) {
+    if h_name {
         h_file = open(h_name, "rU")
-    else:
+    else {
         // See if same basename as the .rc
         h_name = rc_name[:-2]+"h"
-        try:
+        try {
             h_file = open(h_name, "rU")
-        except IOError:
+        except IOError {
             // See if MSVC default of 'resource.h' in the same dir.
             h_name = os.path.join(os.path.dirname(rc_name), "resource.h")
-            try:
+            try {
                 h_file = open(h_name, "rU")
-            except IOError:
+            except IOError {
                 // .h files are optional anyway
                 h_file = None
     rc_file = open(rc_name, "rU")
-    try:
+    try {
         return ParseStreams(rc_file, h_file)
-    finally:
-        if h_file is not None:
+    finally {
+        if h_file is not None {
             h_file.close()
         rc_file.close()
     return rcp
 
-def GenerateFrozenResource(rc_name, output_name, h_name = None):
+def GenerateFrozenResource(rc_name, output_name, h_name = None) {
     /*Converts an .rc windows resource source file into a python source file
        with the same basic public interface as the rest of this module.
        Particularly useful for py2exe or other 'freeze' type solutions,
@@ -556,7 +589,7 @@ def GenerateFrozenResource(rc_name, output_name, h_name = None):
     out.write("_rc_size_=%d\n_rc_mtime_=%d\n" % (in_stat[stat.ST_SIZE], in_stat[stat.ST_MTIME]))
 
     out.write("class StringDef:\n")
-    out.write("\tdef __init__(self, id, idNum, value):\n")
+    out.write("\tconstructor(self, id, idNum, value):\n")
     out.write("\t\tself.id = id\n")
     out.write("\t\tself.idNum = idNum\n")
     out.write("\t\tself.value = value\n")
@@ -565,7 +598,7 @@ def GenerateFrozenResource(rc_name, output_name, h_name = None):
 
     out.write("class FakeParser:\n")
 
-    for name in "dialogs", "ids", "names", "bitmaps", "icons", "stringTable":
+    for name in "dialogs", "ids", "names", "bitmaps", "icons", "stringTable" {
         out.write("\t%s = \\\n" % (name,))
         pprint.pprint(getattr(rcp, name), out)
         out.write("\n")
@@ -574,29 +607,29 @@ def GenerateFrozenResource(rc_name, output_name, h_name = None):
     out.write("\treturn FakeParser()\n")
     out.close()
 
-if __name__=='__main__':
-    if len(sys.argv) <= 1:
+if __name__=='__main__' {
+    if len(sys.argv) <= 1 {
         print(__doc__)
         print()
         print("See test_win32rcparser.py, and the win32rcparser directory (both")
         print("in the test suite) for an example of this module's usage.")
-    else:
+    else {
         import pprint
         filename = sys.argv[1]
-        if "-v" in sys.argv:
+        if "-v" in sys.argv {
             RCParser.debugEnabled = 1
         print("Dumping all resources in '%s'" % filename)
         resources = Parse(filename)
-        for id, ddef in resources.dialogs.items():
+        for id, ddef in resources.dialogs.items() {
             print("Dialog %s (%d controls)" % (id, len(ddef)))
             pprint.pprint(ddef)
             print()
-        for id, sdef in resources.stringTable.items():
+        for id, sdef in resources.stringTable.items() {
             print("String %s=%r" % (id, sdef.value))
             print()
-        for id, sdef in resources.bitmaps.items():
+        for id, sdef in resources.bitmaps.items() {
             print("Bitmap %s=%r" % (id, sdef))
             print()
-        for id, sdef in resources.icons.items():
+        for id, sdef in resources.icons.items() {
             print("Icon %s=%r" % (id, sdef))
             print()
